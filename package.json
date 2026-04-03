@@ -3,7 +3,7 @@
   "name": "vscode-workspace",
   "title": "VS Code Workspace",
   "description": "VSCode workspace access plugin for Raycast",
-  "icon": "extension-icon.png",
+  "icon": "icon.png",
   "license": "MIT",
   "commands": [
     {
@@ -101,6 +101,18 @@
   "platforms": [
     "Windows",
     "macOS"
+  ],
+  "keywords": [
+    "vscode",
+    "antigravity",
+    "cursor",
+    "codium",
+    "kiro",
+    "positron",
+    "windsurf",
+    "trae",
+    "trae-cn",
+    "lingma"
   ],
   "categories": [
     "Developer Tools"
