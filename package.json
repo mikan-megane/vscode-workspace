@@ -2,7 +2,7 @@
   "$schema": "https://www.raycast.com/schemas/extension.json",
   "name": "vscode-workspace",
   "title": "VS Code Workspace",
-  "description": "VSCode workspace access plugin for Raycast",
+  "description": "Search and open recent projects from VS Code and compatible editors, even when they're not running. Works offline using cached data.",
   "icon": "icon.png",
   "license": "MIT",
   "commands": [
