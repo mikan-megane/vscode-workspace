@@ -1,6 +1,6 @@
 # VS Code Workspace
 
-Search and open recent projects from VS Code and compatible editors, even when they're not running. Works offline using cached data.
+A [Raycast](https://raycast.com) extension to search and open recent projects from VS Code and compatible editors, even when they're not running. Works offline using cached data.
 
 ## Features
 
