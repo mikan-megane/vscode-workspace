@@ -9,7 +9,7 @@ import {
 } from "@raycast/api";
 import { usePromise } from "@raycast/utils";
 import { basename, dirname } from "path";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { fileURLToPath } from "url";
 import { useRecentEntries, getBuildScheme } from "./lib/db";
 import { build } from "./lib/preferences";
@@ -27,11 +27,7 @@ import { getEditorApplication } from "./lib/editor";
 const PAGE_SIZE = 50;
 
 export default function Command() {
-  const {
-    data: entriesData,
-    isLoading,
-    error,
-  } = usePromise(useRecentEntries, [], {
+  const { data: entriesData, isLoading } = usePromise(useRecentEntries, [], {
     onError: () => {
       showToast({
         style: Toast.Style.Failure,
@@ -47,7 +43,9 @@ export default function Command() {
     ReturnType<typeof getEditorApplication>
   > | null>(null);
 
-  getEditorApplication(build).then(setEditorApp);
+  useEffect(() => {
+    getEditorApplication(build).then(setEditorApp);
+  }, []);
 
   const handleTypeChange = (newType: EntryType | null) => {
     setType(newType);
@@ -85,7 +83,7 @@ export default function Command() {
               actions={
                 <ActionPanel>
                   <Action
-                    title="Load more"
+                    title="Load More"
                     onAction={() => setPage(page + 1)}
                   />
                 </ActionPanel>
@@ -98,13 +96,16 @@ export default function Command() {
   );
 }
 
-function EntryTypeDropdown(props: { onChange: (type: EntryType) => void }) {
+function EntryTypeDropdown(props: {
+  onChange: (type: EntryType | null) => void;
+}) {
   return (
     <List.Dropdown
       tooltip="Filter project types"
-      defaultValue={EntryType.AllTypes}
-      storeValue
-      onChange={(value) => props.onChange(value as EntryType)}
+      defaultValue="All Types"
+      onChange={(value) =>
+        props.onChange(value === "All Types" ? null : (value as EntryType))
+      }
     >
       <List.Dropdown.Item title="All Types" value="All Types" />
       <List.Dropdown.Section>

@@ -64,6 +64,7 @@ export function isRemoteWorkspaceEntry(
 export function filterEntriesByType(filter: EntryType | null) {
   switch (filter) {
     case "All Types":
+    case null:
       return () => true;
     case "Workspaces":
       return isWorkspaceEntry;
