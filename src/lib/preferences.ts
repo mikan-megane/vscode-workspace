@@ -1,5 +1,15 @@
 import { getPreferenceValues } from "@raycast/api";
 
-const preferences = getPreferenceValues<ExtensionPreferences>();
+export type ExtensionPreferences = {
+  build: string;
+};
 
-export const build = preferences.build;
+function getPreferences(): ExtensionPreferences {
+  return getPreferenceValues<ExtensionPreferences>();
+}
+
+export const build = (() => getPreferences().build || "Code")();
+
+export function getBuild(): string {
+  return getPreferences().build || "Code";
+}

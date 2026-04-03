@@ -1,10 +1,13 @@
-import { useSQL } from "@raycast/utils";
+import initSqlJs from "sql.js/dist/sql-asm.js";
 import fs from "fs";
 import { homedir } from "os";
 import path from "path";
-import { EntryLike, RecentEntries } from "./types";
+import { EntryLike } from "./types";
 import { isWin } from "./utils";
 import { build } from "./preferences";
+
+let sqlJsInitialized = false;
+let SQL: Awaited<ReturnType<typeof initSqlJs>> | null = null;
 
 const buildSchemes: Record<string, string> = {
   Antigravity: "antigravity",
@@ -54,22 +57,51 @@ export function getBuildScheme(): string {
   return scheme;
 }
 
-export function useRecentEntries() {
+export async function useRecentEntries() {
   const dbPath = getDBPath();
 
   if (!fs.existsSync(dbPath)) {
     return { data: undefined, isLoading: false, error: true as const };
   }
 
-  const { data, isLoading, revalidate } = useSQL<RecentEntries>(
-    dbPath,
-    "SELECT json_extract(value, '$.entries') as entries FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList'",
-  );
+  try {
+    console.log("Initializing sql.js...");
 
-  const entries = data && data.length ? data[0].entries : undefined;
-  const parsedEntries = entries
-    ? (JSON.parse(entries) as EntryLike[])
-    : undefined;
+    if (!sqlJsInitialized || !SQL) {
+      SQL = await initSqlJs();
+      sqlJsInitialized = true;
+    }
 
-  return { data: parsedEntries, isLoading, revalidate };
+    if (!SQL) {
+      return { data: undefined, isLoading: false, error: true as const };
+    }
+
+    console.log("Reading database file...");
+    const fileBuffer = fs.readFileSync(dbPath);
+    console.log("Creating database...");
+    const db = new SQL.Database(fileBuffer);
+
+    console.log("Executing query...");
+    const result = db.exec(
+      "SELECT json_extract(value, '$.entries') as entries FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList'",
+    );
+
+    db.close();
+
+    console.log("Query result:", result);
+    const entries =
+      result.length > 0 && result[0].values.length > 0
+        ? (result[0].values[0][0] as string)
+        : undefined;
+
+    const parsedEntries = entries
+      ? (JSON.parse(entries) as EntryLike[])
+      : undefined;
+
+    console.log("Parsed entries:", parsedEntries?.length);
+    return { data: parsedEntries, isLoading: false, error: false as const };
+  } catch (e) {
+    console.log("Error:", e);
+    return { data: undefined, isLoading: false, error: true as const };
+  }
 }

@@ -1,6 +1,15 @@
-import { Action, ActionPanel, Icon, List, open } from "@raycast/api";
+import {
+  Action,
+  ActionPanel,
+  Icon,
+  List,
+  open,
+  showToast,
+  Toast,
+} from "@raycast/api";
+import { usePromise } from "@raycast/utils";
 import { basename, dirname } from "path";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { fileURLToPath } from "url";
 import { useRecentEntries, getBuildScheme } from "./lib/db";
 import { build } from "./lib/preferences";
@@ -15,46 +24,75 @@ import {
 } from "./lib/utils";
 import { getEditorApplication } from "./lib/editor";
 
+const PAGE_SIZE = 50;
+
 export default function Command() {
-  const { data, isLoading, error } = useRecentEntries();
+  const {
+    data: entriesData,
+    isLoading,
+    error,
+  } = usePromise(useRecentEntries, [], {
+    onError: () => {
+      showToast({
+        style: Toast.Style.Failure,
+        title: "Failed to load recent projects",
+        message: `Could not read the ${build} state database. Make sure ${build} is installed.`,
+      });
+    },
+  });
   const [type, setType] = useState<EntryType | null>(null);
+  const [page, setPage] = useState(0);
 
-  // Debug logging
-  console.log("Debug - data:", data);
-  console.log("Debug - isLoading:", isLoading);
-  console.log("Debug - error:", error);
-  console.log("Debug - filtered length:", data?.filter(filterEntriesByType(type))?.length ?? 0);
+  const [editorApp, setEditorApp] = useState<Awaited<
+    ReturnType<typeof getEditorApplication>
+  > | null>(null);
 
-  if (error) {
-    return (
-      <List>
-        <List.EmptyView
-          title="Failed to load recent projects"
-          description={`Could not read the ${build} state database. Make sure ${build} is installed.`}
-          icon={Icon.ExclamationMark}
-        />
-      </List>
-    );
-  }
+  getEditorApplication(build).then(setEditorApp);
 
-  const filtered = data?.filter(filterEntriesByType(type)) ?? [];
+  const handleTypeChange = (newType: EntryType | null) => {
+    setType(newType);
+    setPage(0);
+  };
+
+  const filtered = (entriesData?.data ?? []).filter(filterEntriesByType(type));
+  const paginated = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const hasMore = filtered.length > (page + 1) * PAGE_SIZE;
 
   return (
     <List
       isLoading={isLoading}
       searchBarPlaceholder="Search recent projects..."
-      searchBarAccessory={<EntryTypeDropdown onChange={setType} />}
+      searchBarAccessory={<EntryTypeDropdown onChange={handleTypeChange} />}
     >
-      {filtered.length === 0 && !isLoading ? (
+      {paginated.length === 0 && !isLoading ? (
         <List.EmptyView
           title="No recent projects found"
           description="Open some projects in VS Code first"
           icon={Icon.Folder}
         />
       ) : (
-        filtered.map((entry: EntryLike, index: number) => (
-          <EntryItem key={index} entry={entry} />
-        ))
+        <>
+          {paginated.map((entry: EntryLike, index: number) => (
+            <EntryItem
+              key={`${page}-${index}`}
+              entry={entry}
+              editorApp={editorApp}
+            />
+          ))}
+          {hasMore && (
+            <List.Item
+              title="Load more..."
+              actions={
+                <ActionPanel>
+                  <Action
+                    title="Load more"
+                    onAction={() => setPage(page + 1)}
+                  />
+                </ActionPanel>
+              }
+            />
+          )}
+        </>
       )}
     </List>
   );
@@ -81,13 +119,26 @@ function EntryTypeDropdown(props: { onChange: (type: EntryType) => void }) {
   );
 }
 
-function EntryItem(props: { entry: EntryLike }) {
+function EntryItem(props: {
+  entry: EntryLike;
+  editorApp: Awaited<ReturnType<typeof getEditorApplication>> | null;
+}) {
   if (isWorkspaceEntry(props.entry)) {
     return (
-      <LocalItem uri={props.entry.workspace.configPath} entry={props.entry} />
+      <LocalItem
+        uri={props.entry.workspace.configPath}
+        entry={props.entry}
+        editorApp={props.editorApp}
+      />
     );
   } else if (isFolderEntry(props.entry)) {
-    return <LocalItem uri={props.entry.folderUri} entry={props.entry} />;
+    return (
+      <LocalItem
+        uri={props.entry.folderUri}
+        entry={props.entry}
+        editorApp={props.editorApp}
+      />
+    );
   } else if (isRemoteEntry(props.entry)) {
     return (
       <RemoteItem
@@ -105,27 +156,30 @@ function EntryItem(props: { entry: EntryLike }) {
       />
     );
   } else if (isFileEntry(props.entry)) {
-    return <LocalItem uri={props.entry.fileUri} entry={props.entry} />;
+    return (
+      <LocalItem
+        uri={props.entry.fileUri}
+        entry={props.entry}
+        editorApp={props.editorApp}
+      />
+    );
   } else {
     return null;
   }
 }
 
-function LocalItem(props: { uri: string; entry: EntryLike }) {
+function LocalItem(props: {
+  uri: string;
+  entry: EntryLike;
+  editorApp: Awaited<ReturnType<typeof getEditorApplication>> | null;
+}) {
   const name = decodeURIComponent(basename(props.uri));
   const path = fileURLToPath(props.uri);
   const subtitle = dirname(path);
 
-  const [editorApp, setEditorApp] =
-    useState<Awaited<ReturnType<typeof getEditorApplication>>>(undefined);
-
-  useEffect(() => {
-    getEditorApplication(build).then(setEditorApp);
-  }, []);
-
   const handleOpen = async () => {
-    if (editorApp) {
-      await open(path, editorApp);
+    if (props.editorApp) {
+      await open(path, props.editorApp);
     } else {
       await open(path);
     }
@@ -141,14 +195,18 @@ function LocalItem(props: { uri: string; entry: EntryLike }) {
           ? [{ icon: Icon.Folder }]
           : isWorkspaceEntry(props.entry)
             ? [{ icon: Icon.Document }]
-            : [{ icon: Icon.File }]
+            : [{ icon: Icon.Document }]
       }
       actions={
         <ActionPanel>
           <ActionPanel.Section>
             <Action
               title={`Open in ${build}`}
-              icon={editorApp ? { fileIcon: editorApp.path } : Icon.Globe}
+              icon={
+                props.editorApp
+                  ? { fileIcon: props.editorApp.path }
+                  : Icon.Globe
+              }
               onAction={handleOpen}
             />
             <Action.ShowInFinder path={path} />
