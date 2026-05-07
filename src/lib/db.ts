@@ -57,6 +57,72 @@ function getStorageJsonPath() {
   return path.join(getGlobalStoragePath(), "storage.json");
 }
 
+function getWorkspaceStoragePath() {
+  const buildName = getBuildName();
+  if (isWin) {
+    return path.join(
+      homedir(),
+      "AppData",
+      "Roaming",
+      buildName,
+      "User",
+      "workspaceStorage",
+    );
+  }
+  return path.join(
+    homedir(),
+    "Library",
+    "Application Support",
+    buildName,
+    "User",
+    "workspaceStorage",
+  );
+}
+
+function buildUriTimestampMap(): Map<string, number> {
+  const wsPath = getWorkspaceStoragePath();
+  const map = new Map<string, number>();
+  if (!fs.existsSync(wsPath)) return map;
+
+  try {
+    const dirs = fs.readdirSync(wsPath);
+    for (const dir of dirs) {
+      const fullDir = path.join(wsPath, dir);
+      const wsJsonPath = path.join(fullDir, "workspace.json");
+      if (!fs.existsSync(wsJsonPath)) continue;
+      try {
+        const wsData = JSON.parse(fs.readFileSync(wsJsonPath, "utf8"));
+        const uri = wsData.folder || wsData.workspace?.configPath;
+        if (uri) {
+          const stat = fs.statSync(fullDir);
+          map.set(uri, stat.mtimeMs);
+        }
+      } catch {
+        // skip
+      }
+    }
+  } catch {
+    // skip
+  }
+  return map;
+}
+
+function getEntryUri(entry: EntryLike): string {
+  if ("folderUri" in entry) return entry.folderUri;
+  if ("fileUri" in entry) return entry.fileUri;
+  if ("workspace" in entry) return entry.workspace.configPath;
+  return "";
+}
+
+function sortByRecency(entries: EntryLike[]): EntryLike[] {
+  const timestampMap = buildUriTimestampMap();
+  return [...entries].sort((a, b) => {
+    const ta = timestampMap.get(getEntryUri(a)) ?? 0;
+    const tb = timestampMap.get(getEntryUri(b)) ?? 0;
+    return tb - ta;
+  });
+}
+
 export function getBuildScheme(): string {
   const scheme = buildSchemes[getBuildName()] as string | undefined;
   if (!scheme || scheme.length <= 0) return buildSchemes.Code;
@@ -150,7 +216,7 @@ export async function useRecentEntries() {
   if (!fs.existsSync(dbPath)) {
     const storageEntries = readFromStorageJson();
     if (storageEntries) {
-      return { data: storageEntries, isLoading: false, error: false as const };
+      return { data: sortByRecency(storageEntries), isLoading: false, error: false as const };
     }
     return { data: undefined, isLoading: false, error: true as const };
   }
@@ -166,7 +232,7 @@ export async function useRecentEntries() {
     if (!SQL) {
       const storageEntries = readFromStorageJson();
       if (storageEntries) {
-        return { data: storageEntries, isLoading: false, error: false as const };
+        return { data: sortByRecency(storageEntries), isLoading: false, error: false as const };
       }
       return { data: undefined, isLoading: false, error: true as const };
     }
@@ -192,13 +258,13 @@ export async function useRecentEntries() {
     if (entries) {
       const parsedEntries = JSON.parse(entries) as EntryLike[];
       console.log("Parsed entries:", parsedEntries?.length);
-      return { data: parsedEntries, isLoading: false, error: false as const };
+      return { data: sortByRecency(parsedEntries), isLoading: false, error: false as const };
     }
 
     const storageEntries = readFromStorageJson();
     if (storageEntries) {
       console.log("Entries from storage.json:", storageEntries.length);
-      return { data: storageEntries, isLoading: false, error: false as const };
+      return { data: sortByRecency(storageEntries), isLoading: false, error: false as const };
     }
 
     return { data: undefined, isLoading: false, error: false as const };
@@ -206,7 +272,7 @@ export async function useRecentEntries() {
     console.log("Error:", e);
     const storageEntries = readFromStorageJson();
     if (storageEntries) {
-      return { data: storageEntries, isLoading: false, error: false as const };
+      return { data: sortByRecency(storageEntries), isLoading: false, error: false as const };
     }
     return { data: undefined, isLoading: false, error: true as const };
   }
