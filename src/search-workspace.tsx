@@ -24,6 +24,23 @@ import {
 } from "./lib/utils";
 import { getEditorApplication } from "./lib/editor";
 
+function getEntrySearchText(entry: EntryLike): string {
+  if (isRemoteEntry(entry)) {
+    return [entry.folderUri, entry.label, entry.remoteAuthority]
+      .join(" ")
+      .toLowerCase();
+  }
+  if (isRemoteWorkspaceEntry(entry)) {
+    return [entry.workspace.configPath, entry.label ?? "", entry.remoteAuthority]
+      .join(" ")
+      .toLowerCase();
+  }
+  if (isFolderEntry(entry)) return entry.folderUri.toLowerCase();
+  if (isFileEntry(entry)) return entry.fileUri.toLowerCase();
+  if (isWorkspaceEntry(entry)) return entry.workspace.configPath.toLowerCase();
+  return "";
+}
+
 const PAGE_SIZE = 50;
 
 export default function Command() {
@@ -38,6 +55,7 @@ export default function Command() {
   });
   const [type, setType] = useState<EntryType | null>(null);
   const [page, setPage] = useState(0);
+  const [searchText, setSearchText] = useState("");
 
   const [editorApp, setEditorApp] = useState<Awaited<
     ReturnType<typeof getEditorApplication>
@@ -52,14 +70,24 @@ export default function Command() {
     setPage(0);
   };
 
-  const filtered = (entriesData?.data ?? []).filter(filterEntriesByType(type));
-  const paginated = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  const hasMore = filtered.length > (page + 1) * PAGE_SIZE;
+  const filtered = (entriesData?.data ?? [])
+    .filter(filterEntriesByType(type))
+    .filter(
+      (e) =>
+        searchText.length === 0 ||
+        getEntrySearchText(e).includes(searchText.toLowerCase()),
+    );
+  const isSearching = searchText.length > 0;
+  const paginated = isSearching
+    ? filtered
+    : filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const hasMore = !isSearching && filtered.length > (page + 1) * PAGE_SIZE;
 
   return (
     <List
       isLoading={isLoading}
       searchBarPlaceholder="Search recent projects..."
+      onSearchTextChange={setSearchText}
       searchBarAccessory={<EntryTypeDropdown onChange={handleTypeChange} />}
     >
       {paginated.length === 0 && !isLoading ? (
