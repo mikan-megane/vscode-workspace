@@ -27,7 +27,7 @@ function getBuildName(): string {
   return build;
 }
 
-function getDBPath() {
+function getGlobalStoragePath() {
   const buildName = getBuildName();
   if (isWin) {
     return path.join(
@@ -37,7 +37,6 @@ function getDBPath() {
       buildName,
       "User",
       "globalStorage",
-      "state.vscdb",
     );
   }
   return path.join(
@@ -47,8 +46,15 @@ function getDBPath() {
     buildName,
     "User",
     "globalStorage",
-    "state.vscdb",
   );
+}
+
+function getDBPath() {
+  return path.join(getGlobalStoragePath(), "state.vscdb");
+}
+
+function getStorageJsonPath() {
+  return path.join(getGlobalStoragePath(), "storage.json");
 }
 
 export function getBuildScheme(): string {
@@ -57,10 +63,95 @@ export function getBuildScheme(): string {
   return scheme;
 }
 
+function parseUriToEntry(uri: string): EntryLike | null {
+  if (uri.startsWith("vscode-remote://")) {
+    const withoutScheme = uri.slice("vscode-remote://".length);
+    const slashIndex = withoutScheme.indexOf("/");
+    if (slashIndex === -1) return null;
+    const remoteAuthority = decodeURIComponent(withoutScheme.slice(0, slashIndex));
+    const remotePath = withoutScheme.slice(slashIndex);
+    if (remotePath.endsWith(".code-workspace")) {
+      return {
+        workspace: { configPath: `vscode-remote://${remoteAuthority}${remotePath}` },
+        remoteAuthority,
+        label: "/",
+      };
+    }
+    return {
+      folderUri: `vscode-remote://${remoteAuthority}${remotePath}`,
+      remoteAuthority,
+      label: remotePath,
+    };
+  }
+
+  if (uri.startsWith("vscode-vfs://")) {
+    const withoutScheme = uri.slice("vscode-vfs://".length);
+    const slashIndex = withoutScheme.indexOf("/");
+    if (slashIndex === -1) return null;
+    const remoteAuthority = decodeURIComponent(withoutScheme.slice(0, slashIndex));
+    const remotePath = withoutScheme.slice(slashIndex);
+    return {
+      folderUri: uri,
+      remoteAuthority,
+      label: remotePath,
+    };
+  }
+
+  if (uri.endsWith(".code-workspace")) {
+    return { workspace: { configPath: uri } };
+  }
+
+  return { folderUri: uri };
+}
+
+function readFromStorageJson(): EntryLike[] | null {
+  const storageJsonPath = getStorageJsonPath();
+  if (!fs.existsSync(storageJsonPath)) return null;
+
+  try {
+    const data = JSON.parse(fs.readFileSync(storageJsonPath, "utf8"));
+    const workspaces: Record<string, string> = data?.profileAssociations?.workspaces ?? {};
+    const entries: EntryLike[] = [];
+    const seen = new Set<string>();
+
+    for (const uri of Object.keys(workspaces)) {
+      if (seen.has(uri)) continue;
+      seen.add(uri);
+      const entry = parseUriToEntry(uri);
+      if (entry) entries.push(entry);
+    }
+
+    const backupFolders: Array<{ folderUri: string; remoteAuthority?: string }> =
+      data?.backupWorkspaces?.folders ?? [];
+    for (const f of backupFolders) {
+      if (seen.has(f.folderUri)) continue;
+      seen.add(f.folderUri);
+      if (f.remoteAuthority) {
+        entries.push({
+          folderUri: f.folderUri,
+          remoteAuthority: f.remoteAuthority,
+          label: f.folderUri,
+        });
+      } else {
+        const entry = parseUriToEntry(f.folderUri);
+        if (entry) entries.push(entry);
+      }
+    }
+
+    return entries.length > 0 ? entries : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function useRecentEntries() {
   const dbPath = getDBPath();
 
   if (!fs.existsSync(dbPath)) {
+    const storageEntries = readFromStorageJson();
+    if (storageEntries) {
+      return { data: storageEntries, isLoading: false, error: false as const };
+    }
     return { data: undefined, isLoading: false, error: true as const };
   }
 
@@ -73,6 +164,10 @@ export async function useRecentEntries() {
     }
 
     if (!SQL) {
+      const storageEntries = readFromStorageJson();
+      if (storageEntries) {
+        return { data: storageEntries, isLoading: false, error: false as const };
+      }
       return { data: undefined, isLoading: false, error: true as const };
     }
 
@@ -94,14 +189,25 @@ export async function useRecentEntries() {
         ? (result[0].values[0][0] as string)
         : undefined;
 
-    const parsedEntries = entries
-      ? (JSON.parse(entries) as EntryLike[])
-      : undefined;
+    if (entries) {
+      const parsedEntries = JSON.parse(entries) as EntryLike[];
+      console.log("Parsed entries:", parsedEntries?.length);
+      return { data: parsedEntries, isLoading: false, error: false as const };
+    }
 
-    console.log("Parsed entries:", parsedEntries?.length);
-    return { data: parsedEntries, isLoading: false, error: false as const };
+    const storageEntries = readFromStorageJson();
+    if (storageEntries) {
+      console.log("Entries from storage.json:", storageEntries.length);
+      return { data: storageEntries, isLoading: false, error: false as const };
+    }
+
+    return { data: undefined, isLoading: false, error: false as const };
   } catch (e) {
     console.log("Error:", e);
+    const storageEntries = readFromStorageJson();
+    if (storageEntries) {
+      return { data: storageEntries, isLoading: false, error: false as const };
+    }
     return { data: undefined, isLoading: false, error: true as const };
   }
 }
